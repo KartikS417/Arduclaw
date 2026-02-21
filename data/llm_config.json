@@ -1,0 +1,7 @@
+{
+  "host": "192.168.1.50",
+  "port": 11434,
+  "endpoint": "/api/generate",
+  "model": "llama3",
+  "timeout": 8000
+}
