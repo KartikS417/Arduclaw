@@ -34,6 +34,54 @@ Arduclaw is a compact, production-minded Arduino library that brings LLM-driven 
 **Supported Boards**
 - ESP32, ESP32-S2/S3, ESP8266 (features like SPIFFS/OTA may vary by board).
 
+**Wi‑Fi Guide**
+- Initialize Serial early: call `Serial.begin()` before operations that log status.
+- Store credentials securely: prefer SPIFFS or `data/llm_config.json` over hardcoding.
+- Non-blocking connect: avoid long blocking loops; use timeouts and feed the watchdog while waiting.
+- Use event handlers: `WiFi.onEvent()` (ESP32) to react to `SYSTEM_EVENT_STA_GOT_IP` and `SYSTEM_EVENT_STA_DISCONNECTED`.
+- TLS and verification: prefer `WiFiClientSecure` with certificate pinning or CA verification for LLM endpoints and MQTT brokers.
+- Reconnect strategy: exponential backoff with a capped delay; avoid tight retry loops that starve other tasks.
+
+Snippet — robust connect + reconnect (ESP32):
+```cpp
+void startWiFi(const char* ssid, const char* pass) {
+	WiFi.mode(WIFI_STA);
+	WiFi.begin(ssid, pass);
+	Serial.print("Connecting to WiFi");
+	unsigned long start = millis();
+	const unsigned long timeout = 15000; // 15s
+	while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeout) {
+		delay(200);
+		yield();
+	}
+	if (WiFi.status() == WL_CONNECTED) {
+		Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+	} else {
+		Serial.println("\nWiFi connect timed out");
+		// Consider starting AP/config portal here
+	}
+}
+
+void handleWiFiReconnect() {
+	static unsigned long lastAttempt = 0;
+	static unsigned long backoff = 1000;
+	if (WiFi.status() != WL_CONNECTED) {
+		if (millis() - lastAttempt >= backoff) {
+			lastAttempt = millis();
+			WiFi.reconnect();
+			backoff = min(backoff * 2, 30000UL);
+		}
+	} else {
+		backoff = 1000; // reset when connected
+	}
+}
+```
+
+Tips
+- Use a config portal (WiFiManager) for field setup to improve UX.
+- Feed the watchdog inside long waits and retry loops.
+- Log clear status messages and expose IP/address in serial output for easy debugging.
+
 **Dependencies**
 - ArduinoJson (6.x)
 - PubSubClient (for MQTT examples)
