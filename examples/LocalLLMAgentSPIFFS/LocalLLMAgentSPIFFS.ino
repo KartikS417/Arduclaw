@@ -2,7 +2,7 @@
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
 
-#include <ArduClaw.h>
+#include "Arduclaw.h"
 #include <providers/AC_LocalLLMProvider.h>
 
 // ============================

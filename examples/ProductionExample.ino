@@ -13,17 +13,17 @@
 #include <ArduinoJson.h>
 
 // Arduclaw core
-#include "src/Arduclaw.h"
+#include "Arduclaw.h"
 
 // Security features
-#include "src/core/Logger.h"
-#include "src/core/WatchdogHelper.h"
-#include "src/core/SecretManager.h"
-#include "src/core/ConfigIntegrity.h"
-#include "src/core/OTASignatureVerifier.h"
-#include "src/providers/AC_OpenAIProvider.h"
-#include "src/providers/AC_LocalLLMProvider.h"
-#include "src/channels/MQTTChannel.h"
+#include <core/Logger.h>
+#include <core/WatchdogHelper.h>
+#include <core/SecretManager.h>
+#include <core/ConfigIntegrity.h>
+#include <core/OTASignatureVerifier.h>
+#include <providers/AC_OpenAIProvider.h>
+#include <providers/AC_LocalLLMProvider.h>
+#include <channels/MQTTChannel.h>
 
 // ============================================================================
 // 1. SETUP DEVICE IDENTITY & PUBLIC KEY

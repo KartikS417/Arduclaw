@@ -3,13 +3,13 @@
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
 
-#include <ArduClaw.h>
-#include <ProviderManager.h>
-#include <LocalLLMProvider.h>
+#include "Arduclaw.h"
+#include <core/ProviderManager.h>
+#include <providers/AC_LocalLLMProvider.h>
 
 ArduClaw claw;
 ProviderManager providerManager;
-LocalLLMProvider localProvider;
+AC_LocalLLMProvider localProvider;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
