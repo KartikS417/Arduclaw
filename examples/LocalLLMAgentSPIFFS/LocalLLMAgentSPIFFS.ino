@@ -1,124 +1,64 @@
 #include <WiFi.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
-
-#include "Arduclaw.h"
+#include <Arduclaw.h>
 #include <providers/AC_LocalLLMProvider.h>
-
-// ============================
-// WiFi Credentials
-// ============================
-
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+#include "src/ConfigManager.h" // Use the library's config manager
 
 // ============================
 // Hardware
 // ============================
-
 #define RELAY_PIN 2
-
-// ============================
-// Config Structure
-// ============================
-
-struct LLMConfig {
-    String host;
-    int port;
-    String endpoint;
-    String model;
-    int timeout;
-};
-
-LLMConfig llmConfig;
-
-// ============================
-// Load Config From SPIFFS
-// ============================
-
-bool loadLLMConfig() {
-
-    if (!SPIFFS.begin(true)) {
-        Serial.println("SPIFFS Mount Failed");
-        return false;
-    }
-
-    File file = SPIFFS.open("/llm_config.json", "r");
-    if (!file) {
-        Serial.println("Config file not found");
-        return false;
-    }
-
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, file);
-    file.close();
-
-    if (error) {
-        Serial.println("JSON parse failed");
-        return false;
-    }
-
-    llmConfig.host     = doc["host"].as<String>();
-    llmConfig.port     = doc["port"];
-    llmConfig.endpoint = doc["endpoint"].as<String>();
-    llmConfig.model    = doc["model"].as<String>();
-    llmConfig.timeout  = doc["timeout"] | 8000;
-
-    return true;
-}
 
 // ============================
 // Globals
 // ============================
-
-ArduClaw* claw;
-AC_LocalLLMProvider* localLLM;
+ArduClaw claw;
+AC_LocalLLMProvider* localLLM = nullptr; // Will be created after loading config
 
 // ============================
 // Serial Channel
 // ============================
-
+// A more robust implementation of a serial channel.
 class SerialChannel : public BaseChannel {
-
 private:
-    String buffer;
-
+    String _message;
+    bool _available = false;
 public:
     void begin() override {
         Serial.println("Local LLM Agent (SPIFFS Config)");
+        Serial.println("Type a message and press Enter to send to the LLM.");
     }
 
     void loop() override {
-        while (Serial.available()) {
-            char c = Serial.read();
-            if (c == '\n') buffer.trim();
-            else buffer += c;
+        if (Serial.available() && !_available) {
+            _message = Serial.readStringUntil('\n');
+            _message.trim();
+            if (_message.length() > 0) {
+                _available = true;
+            }
         }
     }
 
     bool available() override {
-        return buffer.length() > 0;
+        return _available;
     }
 
     String readMessage() override {
-        String msg = buffer;
-        buffer = "";
-        return msg;
+        _available = false;
+        return _message;
     }
 
     void sendMessage(const String& msg) override {
         Serial.println("Response: " + msg);
     }
 };
-
 SerialChannel serialChannel;
 
 // ============================
 // Setup
 // ============================
-
 void setup() {
-
     Serial.begin(115200);
     delay(1000);
 
@@ -126,44 +66,41 @@ void setup() {
     digitalWrite(RELAY_PIN, LOW);
 
     Serial.println("Connecting WiFi...");
-    WiFi.begin(ssid, password);
+
+    // Use the library's ConfigManager to load settings from SPIFFS
+    ConfigManager.begin();
+    if (!ConfigManager.load()) {
+        Serial.println("Failed to load config.json from SPIFFS. Halting.");
+        Serial.println("Please upload a config file with WiFi and LLM settings.");
+        while (true) delay(1000);
+    }
+
+    WiFi.begin(ConfigManager.config.wifi_ssid.c_str(), ConfigManager.config.wifi_pass.c_str());
 
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
     }
-
     Serial.println("\nWiFi Connected");
 
-    if (!loadLLMConfig()) {
-        Serial.println("Failed to load LLM config. Halting.");
-        while (true) delay(1000);
-    }
-
     Serial.println("LLM Config Loaded:");
-    Serial.println("Host: " + llmConfig.host);
-    Serial.println("Model: " + llmConfig.model);
+    Serial.println("Host: " + ConfigManager.config.llm_host);
+    Serial.println("Model: " + ConfigManager.config.llm_model);
 
-    // Create provider dynamically using config
+    // Create provider using the loaded config
     localLLM = new AC_LocalLLMProvider(
-        llmConfig.host.c_str(),
-        llmConfig.port,
-        llmConfig.endpoint.c_str(),
-        llmConfig.model.c_str()
+        ConfigManager.config.llm_host,
+        ConfigManager.config.llm_port,
+        ConfigManager.config.llm_endpoint,
+        ConfigManager.config.llm_model
     );
 
-    localLLM->setTimeout(llmConfig.timeout);
+    claw.addProvider(localLLM);
+    claw.addChannel(&serialChannel);
 
-    claw = new ArduClaw();
-
-    claw->addProvider(localLLM);
-    claw->addChannel(&serialChannel);
-
-    claw->registerAction("relay_on", {}, PERMISSION_LOW);
-    claw->registerAction("relay_off", {}, PERMISSION_LOW);
-
-    claw->onAction([](JsonDocument& doc) {
-
+    claw.registerAction("relay_on", {}, PERMISSION_LOW);
+    claw.registerAction("relay_off", {}, PERMISSION_LOW);
+    claw.onAction([](JsonDocument& doc) {
         String action = doc["action"];
 
         if (action == "relay_on") {
@@ -176,14 +113,13 @@ void setup() {
         }
     });
 
-    claw->begin();
+    claw.begin();
 }
 
 // ============================
 // Loop
 // ============================
-
 void loop() {
-    claw->loop();
+    claw.loop();
     delay(10);
 }

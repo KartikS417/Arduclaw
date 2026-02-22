@@ -17,7 +17,7 @@ struct DeviceConfig {
     String mqtt_secret_key;  // 32-byte hex string for HMAC-SHA256 signing
 };
 
-class ConfigManager {
+class ConfigManagerClass {
 private:
     bool validateConfig();
     String configPath = "/device_config.json";
@@ -38,3 +38,5 @@ public:
 
     DeviceConfig config;
 };
+
+extern ConfigManagerClass ConfigManager;

@@ -12,7 +12,9 @@ WebServer server(80);
 static bool portalRunning = false;
 static TaskHandle_t portalTaskHandle = NULL;
 
-bool ConfigManager::begin() {
+ConfigManagerClass ConfigManager;
+
+bool ConfigManagerClass::begin() {
     bool started = SPIFFS.begin(true);
     if (started) {
         LOG_INFO_TAG("ConfigManager", "SPIFFS initialized");
@@ -22,7 +24,7 @@ bool ConfigManager::begin() {
     return started;
 }
 
-bool ConfigManager::validateConfig() {
+bool ConfigManagerClass::validateConfig() {
     if (config.wifi_ssid.length() == 0) {
         LOG_WARN_TAG("ConfigManager", "WiFi SSID is empty");
         return false;
@@ -38,15 +40,15 @@ bool ConfigManager::validateConfig() {
     return true;
 }
 
-bool ConfigManager::validate() {
+bool ConfigManagerClass::validate() {
     return validateConfig();
 }
 
-bool ConfigManager::isValid() {
+bool ConfigManagerClass::isValid() {
     return validateConfig();
 }
 
-bool ConfigManager::load() {
+bool ConfigManagerClass::load() {
     File file = SPIFFS.open(configPath, "r");
     if (!file) {
         LOG_WARN_TAG("ConfigManager", "Config file not found");
@@ -110,7 +112,7 @@ bool ConfigManager::load() {
     return true;
 }
 
-bool ConfigManager::save() {
+bool ConfigManagerClass::save() {
     if (!validateConfig()) {
         LOG_WARN_TAG("ConfigManager", "Invalid config, cannot save");
         return false;
@@ -162,7 +164,7 @@ bool ConfigManager::save() {
 }
 
 void portalTask(void* param) {
-    ConfigManager* cm = (ConfigManager*)param;
+    ConfigManagerClass* cm = (ConfigManagerClass*)param;
 
     WiFi.softAP("ArduClaw-Setup");
     LOG_INFO_TAG("ConfigManager", "Setup portal started on 192.168.4.1");
@@ -222,7 +224,7 @@ void portalTask(void* param) {
     vTaskDelete(NULL);
 }
 
-void ConfigManager::startPortalAsync() {
+void ConfigManagerClass::startPortalAsync() {
     if (portalRunning) {
         LOG_WARN_TAG("ConfigManager", "Portal already running");
         return;
@@ -241,7 +243,7 @@ void ConfigManager::startPortalAsync() {
     LOG_INFO_TAG("ConfigManager", "Portal task started");
 }
 
-void ConfigManager::stopPortal() {
+void ConfigManagerClass::stopPortal() {
     if (portalRunning) {
         portalRunning = false;
         LOG_INFO_TAG("ConfigManager", "Portal stopped");
