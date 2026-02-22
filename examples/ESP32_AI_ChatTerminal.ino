@@ -11,9 +11,10 @@
 // --- Beginner WiFi: paste your credentials here ---
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char* API_KEY = "YOUR_API_KEY";
 
 ArduClaw claw;
-OpenAIProvider ai("YOUR_API_KEY");
+AC_OpenAIProvider ai;
 
 void setup() {
   Serial.begin(115200);
@@ -39,7 +40,7 @@ void setup() {
 }
 
   // Initialize provider & library
-  ai.begin();
+  ai.begin(API_KEY);
   claw.addProvider(&ai);
   claw.begin();
 

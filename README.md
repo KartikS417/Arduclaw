@@ -100,7 +100,7 @@ Tips
 - OTA: `OTASignatureVerifier` assists in validating signed firmware images.
 
 **Developer notes**
-- In-tree (development): examples can be compiled directly from the repo. The project also includes wrapper headers so examples compile both in-tree and after installation to Arduino `libraries/`.
+- In-tree (development): examples can be compiled directly from the repo.
 - Installed (library mode): include `#include <Arduclaw.h>` and `#include <providers/AC_LocalLLMProvider.h>` in your sketches.
 
 **Contributing**
