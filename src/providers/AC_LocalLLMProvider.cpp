@@ -10,7 +10,12 @@ AC_LocalLLMProvider::AC_LocalLLMProvider(
     uint16_t p,
     String e,
     String m
-) : host(h), port(p), endpoint(e), model(m) {}
+) : _host(h), _port(p), _endpoint(e), _model(m) {}
+
+bool AC_LocalLLMProvider::begin(const String& apiKey) {
+    _apiKey = apiKey;
+    return true;
+}
 
 void AC_LocalLLMProvider::sendAsync(
     const String& prompt,
@@ -33,15 +38,19 @@ void AC_LocalLLMProvider::sendAsync(
             HTTPClient http;
             http.setTimeout(HTTP_TIMEOUT_MS);
 
-            String url = "http://" + self->host + ":" + String(self->port) + self->endpoint;
+            String url = "http://" + self->_host + ":" + String(self->_port) + self->_endpoint;
 
             LOG_DEBUG_TAG("LocalLLM", "Sending request to " + url);
 
             http.begin(client, url);
             http.addHeader("Content-Type", "application/json");
 
+            if (self->_apiKey.length() > 0) {
+                http.addHeader("Authorization", "Bearer " + self->_apiKey);
+            }
+
             StaticJsonDocument<JSON_BUFFER_SIZE_SM> req;
-            req["model"] = self->model;
+            req["model"] = self->_model;
             req["prompt"] = prompt;
             req["stream"] = false;
 

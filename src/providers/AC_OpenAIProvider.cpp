@@ -1,6 +1,14 @@
 #include "AC_OpenAIProvider.h"
 #include "../core/Logger.h"
 #include "../core/MCUConfig.h"
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+bool AC_OpenAIProvider::begin(const String& apiKey) {
+    _apiKey = apiKey;
+    return true;
+}
 
 void AC_OpenAIProvider::sendAsync(
     const String& prompt,
@@ -39,7 +47,7 @@ void AC_OpenAIProvider::sendAsync(
                 "application/json");
 
             http.addHeader("Authorization",
-                "Bearer " + self->apiKey);
+                "Bearer " + self->_apiKey);
 
             // Use ArduinoJson for safe payload creation, just like in SarvamProvider
             StaticJsonDocument<JSON_BUFFER_SIZE_SM> doc;
@@ -56,39 +64,19 @@ void AC_OpenAIProvider::sendAsync(
 
             int code = http.POST(payload);
 
-            String result;
-
             if (code == 200) {
-                WiFiClient* stream =
-                    http.getStreamPtr();
+                String response = http.getString();
+                StaticJsonDocument<JSON_BUFFER_SIZE_LG> respDoc;
+                DeserializationError error = deserializeJson(respDoc, response);
 
-                bool started = false;
-                int braces = 0;
-
-                while (stream->connected() ||
-                       stream->available()) {
-
-                    if (!stream->available())
-                        continue;
-
-                    char c = stream->read();
-
-                    if (c == '{') {
-                        started = true;
-                        braces++;
-                    }
-
-                    if (started)
-                        result += c;
-
-                    if (c == '}') {
-                        braces--;
-                        if (braces == 0)
-                            break;
-                    }
+                if (error) {
+                    LOG_WARN_TAG("OpenAI", "JSON deserialization failed");
+                    if (onFailure) onFailure("JSON deserialization failed");
+                } else {
+                    String result = respDoc["choices"][0]["message"]["content"].as<String>();
+                    LOG_DEBUG_TAG("OpenAI", "Response received");
+                    if (onSuccess) onSuccess(result);
                 }
-                LOG_DEBUG_TAG("OpenAI", "Response received");
-                if (onSuccess) onSuccess(result);
             } else {
                 String errMsg = "HTTP error: " + String(code);
                 LOG_WARN_TAG("OpenAI", errMsg);

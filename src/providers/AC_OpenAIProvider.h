@@ -1,22 +1,20 @@
-#pragma once
-#include "BaseProvider.h"
-#include "../core/MemoryManager.h"
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#ifndef AC_OPENAI_PROVIDER_H
+#define AC_OPENAI_PROVIDER_H
 
-class OpenAIProvider : public BaseProvider {
-private:
-    String apiKey;
-    String endpoint;
+#include <functional>
+#include "AC_LLMProvider.h"
 
-    String extractJson(Stream& stream);
-
+class AC_OpenAIProvider : public AC_LLMProvider {
 public:
-    OpenAIProvider(String key);
-
+    bool begin(const String& apiKey) override;
     void sendAsync(
         const String& prompt,
         std::function<void(String)> onSuccess,
         std::function<void(String)> onFailure
     ) override;
+
+private:
+    String _apiKey;
 };
+
+#endif
