@@ -41,11 +41,17 @@ void AC_OpenAIProvider::sendAsync(
             http.addHeader("Authorization",
                 "Bearer " + self->apiKey);
 
-            String payload =
-                "{\"model\":\"gpt-4o-mini\","
-                "\"messages\":[{\"role\":\"user\",\"content\":\"" +
-                prompt + "\"}]}";;
+            // Use ArduinoJson for safe payload creation, just like in SarvamProvider
+            StaticJsonDocument<JSON_BUFFER_SIZE_SM> doc;
+            doc["model"] = "gpt-4o-mini";
+            JsonArray messages = doc.createNestedArray("messages");
+            JsonObject msg = messages.createNestedObject();
+            msg["role"] = "user";
+            msg["content"] = prompt;
 
+            String payload;
+            serializeJson(doc, payload);
+            
             LOG_DEBUG_TAG("OpenAI", "Sending request to OpenAI API");
 
             int code = http.POST(payload);

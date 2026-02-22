@@ -2,6 +2,8 @@
 #include "../core/Logger.h"
 #include "../core/MCUConfig.h"
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
 
 AC_LocalLLMProvider::AC_LocalLLMProvider(
     String h,
@@ -15,44 +17,71 @@ void AC_LocalLLMProvider::sendAsync(
     std::function<void(String)> onSuccess,
     std::function<void(String)> onFailure
 ) {
+    xTaskCreatePinnedToCore(
+        [](void* param) {
+            auto* args = (std::tuple<
+                AC_LocalLLMProvider*, String,
+                std::function<void(String)>,
+                std::function<void(String)>>*)param;
 
-    HTTPClient http;
-    http.setTimeout(HTTP_TIMEOUT_MS);
+            AC_LocalLLMProvider* self = std::get<0>(*args);
+            String prompt = std::get<1>(*args);
+            auto onSuccess = std::get<2>(*args);
+            auto onFailure = std::get<3>(*args);
 
-    String url = "http://" + host + ":" + String(port) + endpoint;
+            WiFiClient client;
+            HTTPClient http;
+            http.setTimeout(HTTP_TIMEOUT_MS);
 
-    LOG_DEBUG_TAG("LocalLLM", "Sending request to " + url);
+            String url = "http://" + self->host + ":" + String(self->port) + self->endpoint;
 
-    http.begin(url);
-    http.addHeader("Content-Type", "application/json");
+            LOG_DEBUG_TAG("LocalLLM", "Sending request to " + url);
 
-    StaticJsonDocument<JSON_BUFFER_SIZE_SM> req;
-    req["model"] = model;
-    req["prompt"] = prompt;
-    req["stream"] = false;
+            http.begin(client, url);
+            http.addHeader("Content-Type", "application/json");
 
-    String body;
-    serializeJson(req, body);
+            StaticJsonDocument<JSON_BUFFER_SIZE_SM> req;
+            req["model"] = self->model;
+            req["prompt"] = prompt;
+            req["stream"] = false;
 
-    int code = http.POST(body);
+            String body;
+            serializeJson(req, body);
 
-    if (code == 200) {
-        String response = http.getString();
-        StaticJsonDocument<JSON_BUFFER_SIZE_LG> resp;
-        DeserializationError err = deserializeJson(resp, response);
+            int code = http.POST(body);
 
-        if (!err && resp.containsKey("response")) {
-            LOG_DEBUG_TAG("LocalLLM", "Response received");
-            if (onSuccess) onSuccess(resp["response"].as<String>());
-        } else {
-            LOG_WARN_TAG("LocalLLM", "Invalid response format");
-            if (onFailure) onFailure("Invalid response format");
-        }
-    } else {
-        String errMsg = "HTTP error: " + String(code);
-        LOG_WARN_TAG("LocalLLM", errMsg);
-        if (onFailure) onFailure(errMsg);
-    }
+            if (code == 200) {
+                String response = http.getString();
+                StaticJsonDocument<JSON_BUFFER_SIZE_LG> resp;
+                DeserializationError err = deserializeJson(resp, response);
 
-    http.end();
+                if (!err && resp.containsKey("response")) {
+                    LOG_DEBUG_TAG("LocalLLM", "Response received");
+                    if (onSuccess) onSuccess(resp["response"].as<String>());
+                } else {
+                    LOG_WARN_TAG("LocalLLM", "Invalid response format");
+                    if (onFailure) onFailure("Invalid response format");
+                }
+            } else {
+                String errMsg = "HTTP error: " + String(code);
+                LOG_WARN_TAG("LocalLLM", errMsg);
+                if (onFailure) onFailure(errMsg);
+            }
+
+            http.end();
+
+            delete args;
+            vTaskDelete(NULL);
+        },
+        "AC_LocalLLM",
+        PROVIDER_STACK_SIZE,
+        new std::tuple<
+            AC_LocalLLMProvider*, String,
+            std::function<void(String)>,
+            std::function<void(String)>>(
+            this, prompt, onSuccess, onFailure),
+        1,
+        NULL,
+        1
+    );
 }
