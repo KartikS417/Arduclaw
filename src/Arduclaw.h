@@ -93,4 +93,13 @@ public:
 
     void ask(String msg,
              std::function<void(JsonDocument&)> cb);
+
+    // ========================
+    // Stream LLM
+    // ========================
+    void stream(String msg,
+                std::function<void(const String& chunk)> onChunk,
+                std::function<void(ErrorCode code)> onComplete,
+                std::function<void(ErrorCode code, const String& error)> onError
+    );
 };

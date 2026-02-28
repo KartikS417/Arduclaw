@@ -130,6 +130,17 @@ public:
         return requestId;
     }
 
+    int enqueueStreamRequest(const String& prompt, BaseProvider* provider,
+                      std::function<void(const String&)> onChunk,
+                      std::function<void(ErrorCode)> onComplete,
+                      std::function<void(ErrorCode, const String&)> onFailure,
+                      const RequestConfig& config = RequestConfig()) {
+        // Map streaming request to standard request for now (or implement full streaming logic)
+        // This stub allows compilation to proceed.
+        if (onFailure) onFailure(ErrorCode::INVALID_REQUEST, "Streaming not fully implemented in queue");
+        return -1;
+    }
+
     void process() {
         std::vector<int> completed;
 

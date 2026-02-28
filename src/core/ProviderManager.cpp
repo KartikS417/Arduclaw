@@ -130,6 +130,37 @@ int ProviderManager::sendAsyncWithRetry(
     return _requestQueue.enqueueRequest(prompt, provider, onSuccess, onFailure, config);
 }
 
+int ProviderManager::streamAsync(
+    const String& prompt,
+    std::function<void(const String& chunk)> onChunk,
+    std::function<void(ErrorCode)> onComplete,
+    std::function<void(ErrorCode, const String&)> onFailure,
+    const RequestConfig& config)
+{
+    if (!_rateLimiter.allow()) {
+        LOG_WARN_TAG("ProviderManager", "Rate limit exceeded for streaming");
+        int requestId = RequestTracker::getInstance().createRequest("ProviderManager", prompt);
+        RequestTracker::getInstance().updateState(requestId, RequestState::FAILED,
+                                                  ErrorCode::RATE_LIMIT_EXCEEDED);
+        if (onFailure) onFailure(ErrorCode::RATE_LIMIT_EXCEEDED, "Rate limit exceeded");
+        return requestId;
+    }
+
+    BaseProvider* provider = _providers[_activeIndex];
+    if (!provider) {
+        LOG_ERROR_TAG("ProviderManager", "No active provider for streaming");
+        int requestId = RequestTracker::getInstance().createRequest("ProviderManager", prompt);
+        RequestTracker::getInstance().updateState(requestId, RequestState::FAILED,
+                                                  ErrorCode::PROVIDER_NOT_FOUND);
+        if (onFailure) onFailure(ErrorCode::PROVIDER_NOT_FOUND, "No active provider");
+        return requestId;
+    }
+
+    _metrics[_activeIndex].lastRequestTime = millis();
+
+    return _requestQueue.enqueueStreamRequest(prompt, provider, onChunk, onComplete, onFailure, config);
+}
+
 void ProviderManager::markSuccess()
 {
     if (_activeIndex < _providerCount) {
@@ -163,8 +194,10 @@ void ProviderManager::switchToNextProvider()
 
 bool ProviderManager::setActiveProvider(const String& name)
 {
-    for (int i = 0; i < (int)_providers.size(); i++) {
-        if (i == _activeIndex) {
+    for (int i = 0; i < (int)_providerCount; ++i) {
+        BaseProvider* p = _providers[i];
+        if (p && p->getProviderName() == name) {
+            _activeIndex = i;
             return true;
         }
     }

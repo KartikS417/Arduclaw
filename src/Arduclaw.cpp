@@ -115,6 +115,54 @@ void ArduClaw::ask(String msg,
     LOG_INFO_TAG("ArduClaw", "Request enqueued with ID: " + String(requestId));
 }
 
+void ArduClaw::stream(String msg,
+                      std::function<void(const String& chunk)> onChunk,
+                      std::function<void(ErrorCode code)> onComplete,
+                      std::function<void(ErrorCode code, const String& error)> onError) {
+
+    // Check for brute-force lockout
+    if (bruteForceProtector.isLockedOut("global_stream")) {
+        unsigned long remainingMs = bruteForceProtector.getRemainingLockout("global_stream");
+        LOG_WARN_TAG("ArduClaw", "Brute-force lockout active for streaming: " + String(remainingMs / 1000) + "s");
+        if (onError) onError(ErrorCode::RATE_LIMIT_EXCEEDED, "Brute-force lockout");
+        return;
+    }
+
+    String prompt = PromptManager::build(msg);
+
+    BaseProvider* provider = providerManager.getActiveProvider();
+    if (!provider) {
+        LOG_ERROR_TAG("ArduClaw", "No active provider for streaming");
+        bruteForceProtector.recordFailure("global_stream");
+        if (onError) onError(ErrorCode::PROVIDER_NOT_FOUND, "No active provider");
+        return;
+    }
+
+    // Use a default config for streaming. Longer timeout, fewer retries.
+    RequestConfig config(20000, 1);
+
+    providerManager.streamAsync(
+        prompt,
+        [this, onChunk](const String& chunk) {
+            // Pass chunk directly to user callback
+            if (onChunk) onChunk(chunk);
+        },
+        [this, onComplete](ErrorCode code) {
+            // Stream completed successfully
+            bruteForceProtector.recordSuccess("global_stream");
+            providerManager.markSuccess();
+            if (onComplete) onComplete(code);
+        },
+        [this, onError](ErrorCode code, const String& error) {
+            // Stream failed
+            LOG_ERROR_TAG("ArduClaw", "Provider stream error: " + error);
+            bruteForceProtector.recordFailure("global_stream");
+            providerManager.markFailure();
+            if (onError) onError(code, error);
+        },
+        config);
+}
+
 void ArduClaw::loop()
 {
     WatchdogHelper::feed();  // Feed watchdog during main loop processing

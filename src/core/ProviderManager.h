@@ -1,7 +1,7 @@
 #ifndef PROVIDER_MANAGER_H
 #define PROVIDER_MANAGER_H
 
-#include "BaseProvider.h"
+#include "../providers/BaseProvider.h"
 #include "RateLimiter.h"
 #include "RequestTracker.h"
 #include "AsyncRequestQueue.h"
@@ -38,6 +38,15 @@ public:
     int sendAsyncWithRetry(
         const String& prompt,
         std::function<void(String, ErrorCode)> onSuccess,
+        std::function<void(ErrorCode, const String&)> onFailure,
+        const RequestConfig& config = RequestConfig()
+    );
+
+    // Non-blocking streaming request
+    int streamAsync(
+        const String& prompt,
+        std::function<void(const String& chunk)> onChunk,
+        std::function<void(ErrorCode)> onComplete,
         std::function<void(ErrorCode, const String&)> onFailure,
         const RequestConfig& config = RequestConfig()
     );

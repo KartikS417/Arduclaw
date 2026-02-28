@@ -40,7 +40,10 @@ struct AsyncHTTPResponse {
     bool timeout = false;
 };
 
-typedef std::function<void(const AsyncHTTPResponse&)> HTTPCallback;
+typedef std::function<void(const AsyncHTTPResponse&)> FullResponseCallback;
+typedef std::function<void(const char* chunk, size_t len)> ChunkCallback;
+typedef std::function<void()> StreamCompleteCallback;
+
 
 class AsyncHTTPClient {
 private:
@@ -56,7 +59,12 @@ private:
     unsigned long _startTime = 0;
     unsigned long _timeout = HTTP_TIMEOUT_MS;
     
-    HTTPCallback _onComplete;
+    FullResponseCallback _onComplete;
+
+    // For streaming
+    bool _isStreaming = false;
+    ChunkCallback _onChunk;
+    StreamCompleteCallback _onStreamComplete;
     
     char _authHeader[128];  // For Authorization header
     
@@ -69,7 +77,7 @@ public:
     /**
      * Initialize an async HTTP GET request
      */
-    void get(const String& url, HTTPCallback onComplete) {
+    void get(const String& url, FullResponseCallback onComplete) {
         _url = url;
         _method = "GET";
         _payload = "";
@@ -81,11 +89,26 @@ public:
     /**
      * Initialize an async HTTP POST request
      */
-    void post(const String& url, const String& payload, HTTPCallback onComplete) {
+    void post(const String& url, const String& payload, FullResponseCallback onComplete) {
         _url = url;
         _method = "POST";
         _payload = payload;
         _onComplete = onComplete;
+        _isStreaming = false;
+        _state = AsyncHTTPState::CONNECTING;
+        _startTime = millis();
+    }
+
+    /**
+     * Initialize an async HTTP POST request for streaming
+     */
+    void postStream(const String& url, const String& payload, ChunkCallback onChunk, StreamCompleteCallback onComplete) {
+        _url = url;
+        _method = "POST";
+        _payload = payload;
+        _onChunk = onChunk;
+        _onStreamComplete = onComplete;
+        _isStreaming = true;
         _state = AsyncHTTPState::CONNECTING;
         _startTime = millis();
     }
@@ -168,24 +191,46 @@ public:
             }
 
             case AsyncHTTPState::RECEIVING: {
-                WatchdogHelper::feed();  // Feed watchdog during HTTP receive
-                
-                String response = _http.getString();
-                _response.bodyLength = response.length();
-                
-                if (_response.bodyLength < AsyncHTTPResponse::BUFFER_SIZE) {
-                    strncpy(_response.body, response.c_str(), 
-                           AsyncHTTPResponse::BUFFER_SIZE - 1);
-                    _response.body[AsyncHTTPResponse::BUFFER_SIZE - 1] = '\0';
-                    _response.success = (_response.statusCode == 200);
+                WatchdogHelper::feed(); // Feed watchdog during HTTP receive
+
+                if (_isStreaming) {
+                    WiFiClient* stream = _http.getStreamPtr();
+                    if (stream && stream->available()) {
+                        char buffer[128];
+                        size_t len = stream->readBytes(buffer, sizeof(buffer) - 1);
+                        if (len > 0) {
+                            buffer[len] = '\0';
+                            if (_onChunk) {
+                                _onChunk(buffer, len);
+                            }
+                        }
+                    } else if (!stream || !stream->connected()) {
+                        // Stream is finished
+                        _http.end();
+                        _state = AsyncHTTPState::DONE;
+                        if (_onStreamComplete) _onStreamComplete();
+                        return true;
+                    }
                 } else {
-                    _response.success = false;  // Response too large
+                    // Non-streaming response
+                    String response = _http.getString();
+                    _response.bodyLength = response.length();
+
+                    if (_response.bodyLength < AsyncHTTPResponse::BUFFER_SIZE) {
+                        strncpy(_response.body, response.c_str(),
+                               AsyncHTTPResponse::BUFFER_SIZE - 1);
+                        _response.body[AsyncHTTPResponse::BUFFER_SIZE - 1] = '\0';
+                        _response.success = (_response.statusCode == 200);
+                    } else {
+                        _response.success = false; // Response too large
+                    }
+
+                    _http.end();
+                    _state = AsyncHTTPState::DONE;
+                    _invokeCallback();
+                    return true;
                 }
-                
-                _http.end();
-                _state = AsyncHTTPState::DONE;
-                _invokeCallback();
-                return true;
+                break;
             }
 
             case AsyncHTTPState::DONE:
@@ -221,6 +266,9 @@ public:
         memset(&_response, 0, sizeof(_response));
         memset(_authHeader, 0, sizeof(_authHeader));
         _url = "";
+        _isStreaming = false;
+        _onChunk = nullptr;
+        _onStreamComplete = nullptr;
         _method = "";
         _payload = "";
     }
