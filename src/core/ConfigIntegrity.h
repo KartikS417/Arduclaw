@@ -5,6 +5,10 @@
 #include <ArduinoJson.h>
 #include <cstring>
 
+#if defined(ARDUINO_ARCH_ESP32)
+    #include <esp_mac.h>
+#endif
+
 /**
  * Config Integrity Verification
  * 

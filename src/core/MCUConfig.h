@@ -118,8 +118,10 @@
 #define SHOW_MCU_CONFIG() \
     do { \
         Serial.println("[MCU Config]"); \
-        Serial.println("  Providers: " #MAX_PROVIDERS); \
-        Serial.println("  Channels: " #MAX_CHANNELS); \
-        Serial.println("  JSON Large: " #JSON_BUFFER_SIZE_LG); \
-        Serial.println("  Request Queue: " #REQUEST_QUEUE_MAX); \
+        /* print numeric constants directly instead of using the '#' stringize
+           operator, which only works on macro parameters. */ \
+        Serial.print("  Providers: "); Serial.println(MAX_PROVIDERS); \
+        Serial.print("  Channels: "); Serial.println(MAX_CHANNELS); \
+        Serial.print("  JSON Large: "); Serial.println(JSON_BUFFER_SIZE_LG); \
+        Serial.print("  Request Queue: "); Serial.println(REQUEST_QUEUE_MAX); \
     } while(0)

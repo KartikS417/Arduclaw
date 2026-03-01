@@ -78,6 +78,10 @@ public:
         return *_instance;
     }
 
+    int createRequest(const char* tag, const String& prompt) {
+        return createRequest(tag, prompt.c_str());
+    }
+
     int createRequest(const char* tag, const char* prompt) {
         if (_requestCount >= MAX_TRACKED_REQUESTS) {
             // Remove oldest completed request
@@ -203,5 +207,5 @@ private:
     }
 };
 
-RequestTracker* RequestTracker::_instance = nullptr;
-int RequestTracker::_nextRequestId = 1000;
+inline RequestTracker* RequestTracker::_instance = nullptr;
+inline int RequestTracker::_nextRequestId = 1000;

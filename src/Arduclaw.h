@@ -9,6 +9,7 @@
 #include "core/PromptManager.h"
 #include "core/ChannelManager.h"
 #include "core/RateLimiter.h"
+#include "ConfigManager.h"    // ensure global ConfigManager instance is declared
 
 class ArduClaw {
 private:

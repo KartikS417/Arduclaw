@@ -41,8 +41,17 @@ public:
     static void begin() {
         #if defined(ARDUINO_ARCH_ESP32)
             // Subscribe this task to TWDT
-            esp_task_wdt_init(10, true);  // 10 second timeout
-            esp_task_wdt_add(NULL);  // Add current task
+            #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+                esp_task_wdt_config_t twdt_config = {
+                    .timeout_ms = 10000,
+                    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+                    .trigger_panic = true,
+                };
+                esp_task_wdt_init(&twdt_config);
+            #else
+                esp_task_wdt_init(10, true);  // 10 second timeout
+            #endif
+            esp_task_wdt_add(NULL); // Add current task
         #endif
         _lastFeedTime = millis();
     }
@@ -143,7 +152,7 @@ private:
 };
 
 // Initialize static member
-unsigned long WatchdogHelper::_lastFeedTime = 0;
+inline unsigned long WatchdogHelper::_lastFeedTime = 0;
 
 /**
  * RAII Helper - Automatically feeds watchdog during scope lifetime

@@ -4,7 +4,9 @@
 #include <Arduino.h>
 #include <functional>
 
-class AC_LLMProvider {
+#include "BaseProvider.h"
+
+class AC_LLMProvider : public BaseProvider {
 public:
     // Virtual begin with default implementation (some providers like LocalLLM might not need an API key)
     virtual bool begin(const String& apiKey) { return true; }

@@ -105,7 +105,7 @@ public:
     }
 };
 
-Logger* Logger::_instance = nullptr;
+inline Logger* Logger::_instance = nullptr;
 
 // Global convenience macros
 #define LOG_DEBUG_TAG(tag, msg) Logger::getInstance().debug(tag, msg)

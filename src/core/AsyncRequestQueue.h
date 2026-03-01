@@ -49,7 +49,7 @@ public:
         provider->sendAsync(prompt,
             [this](String result) {
                 RequestTracker::getInstance()
-                    .setResult(requestId, result);
+                    .setResult(requestId, result.c_str());
                 RequestTracker::getInstance()
                     .updateState(requestId, RequestState::SUCCESS, ErrorCode::SUCCESS);
                 
@@ -111,7 +111,7 @@ public:
                       std::function<void(ErrorCode, const String&)> onFailure,
                       const RequestConfig& config = RequestConfig()) {
         
-        int requestId = RequestTracker::getInstance().createRequest("Provider", prompt);
+        int requestId = RequestTracker::getInstance().createRequest("Provider", prompt.c_str());
         
         if (_pendingRequests.size() >= MAX_QUEUE) {
             RequestTracker::getInstance()

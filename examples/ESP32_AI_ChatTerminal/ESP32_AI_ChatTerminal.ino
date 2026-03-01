@@ -3,7 +3,6 @@
   STEP 2: Replace YOUR_API_KEY
   STEP 3: Open Serial Monitor (115200 baud)
 */
-
 #include <Arduclaw.h>
 #include <providers/AC_OpenAIProvider.h>
 #include <WiFi.h>
@@ -32,12 +31,9 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
   } else {
-    Serial.println("\nWiFi not connected — continue without network");
+    Serial.println("\nWiFi failed. Please check credentials.");
+    return;
   }
-  if (WiFi.status() != WL_CONNECTED) {
-  Serial.println("WiFi failed. Please check credentials.");
-  return;
-}
 
   // Initialize provider & library
   ai.begin(API_KEY);

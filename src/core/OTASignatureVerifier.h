@@ -243,8 +243,8 @@ private:
 };
 
 // Static member initialization
-uint8_t OTASignatureVerifier::_devicePublicKey[OTASignatureVerifier::PUBLIC_KEY_SIZE] = {0};
-bool OTASignatureVerifier::_publicKeySet = false;
+inline uint8_t OTASignatureVerifier::_devicePublicKey[OTASignatureVerifier::PUBLIC_KEY_SIZE] = {0};
+inline bool OTASignatureVerifier::_publicKeySet = false;
 
 /**
  * OTA Update Manager

@@ -1,6 +1,9 @@
 #pragma once
 #include <Arduino.h>
+#include <vector>            // std::vector for buffering events
+#include <SD.h>              // SD and File types for log persistence
 #include "ErrorCodes.h"
+#include "Logger.h"         // LogLevel enum and LOG_* constants
 
 enum class EventType {
     PROVIDER_REQUEST_START,
@@ -139,7 +142,7 @@ public:
     }
 };
 
-StructuredLogger* StructuredLogger::_instance = nullptr;
+inline StructuredLogger* StructuredLogger::_instance = nullptr;
 
 // Convenience macro
 #define LOG_EVENT(type, code, tag, msg) \
