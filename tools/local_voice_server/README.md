@@ -18,6 +18,23 @@ cd tools\local_voice_server
 
 Server runs on `http://<your-pc-ip>:8765`.
 
+## Vosk Indian English (Default STT)
+
+This server now defaults to `STT_BACKEND=vosk` and expects Vosk model:
+- `vosk-model-en-in-0.5`
+
+Download model from:
+- https://alphacephei.com/vosk/models
+
+Extract to:
+- `tools\local_voice_server\models\vosk-model-en-in-0.5`
+
+Or set explicit path with:
+
+```powershell
+$env:STT_MODEL_PATH="C:\path\to\vosk-model-en-in-0.5"
+```
+
 ## 2) Configure ESP32 sketch
 
 Set these in the sketch:
@@ -33,9 +50,11 @@ Use the same `<PC_IP>` you use for your Local LLM host.
 
 Environment variables before starting server:
 
-- `STT_MODEL_SIZE` default `base` (`tiny`, `base`, `small`, ...)
-- `STT_COMPUTE_TYPE` default `int8`
-- `STT_LANGUAGE` default auto-detect (example: `en`, `hi`)
+- `STT_BACKEND` default `vosk` (`vosk` or `faster_whisper`)
+- `STT_MODEL_PATH` Vosk model path (default `tools\local_voice_server\models\vosk-model-en-in-0.5`)
+- `STT_MODEL_SIZE` used only for `faster_whisper` backend (`tiny`, `base`, `small`, ...)
+- `STT_COMPUTE_TYPE` used only for `faster_whisper` backend, default `int8`
+- `STT_LANGUAGE` used only for `faster_whisper` backend, default `en`
 - `TTS_RATE` default `175`
 - `TTS_VOLUME` default `1.0`
 - `TTS_VOICE_HINT` default empty (example: `zira`, `david`)
@@ -44,8 +63,8 @@ Environment variables before starting server:
 Example:
 
 ```powershell
-$env:STT_MODEL_SIZE="small"
-$env:STT_LANGUAGE="en"
+$env:STT_BACKEND="vosk"
+$env:STT_MODEL_PATH="C:\path\to\vosk-model-en-in-0.5"
 $env:TTS_VOICE_HINT="zira"
 .\run_server.ps1
 ```

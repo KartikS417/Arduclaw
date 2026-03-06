@@ -53,6 +53,8 @@ static bool g_requestInFlight = false;
 static bool g_ttsPlaying = false;
 static unsigned long g_lastAttemptMs = 0;
 static unsigned long g_resumeListenAtMs = 0;
+static bool g_commandMode = false;
+static unsigned long g_commandModeUntilMs = 0;
 
 // ---------------------------
 // Waveshare ESP32-S3-Touch-LCD-1.83 audio pin map
@@ -84,19 +86,25 @@ static const int I2S_RX_CHANNELS = 2;  // Read stereo and auto-pick active mic l
 // VAD and capture window
 static const int FRAME_SAMPLES = 320;                  // 20ms @ 16kHz
 static const int MAX_UTTERANCE_MS = 6000;              // max 6 sec capture
-static const int SPEECH_START_THRESHOLD = 300;         // tune per environment
-static const int SPEECH_CONTINUE_THRESHOLD = 180;      // tune per environment
-static const int SPEECH_END_SILENCE_MS = 700;
+static const int SPEECH_START_THRESHOLD = 120;         // lower now that wake-word gates requests
+static const int SPEECH_CONTINUE_THRESHOLD = 60;       // keep recording through softer speech
+static const int SPEECH_END_SILENCE_MS = 900;          // end after stable silence
+static const int SPEECH_START_CONFIRM_FRAMES = 2;      // 2 consecutive loud frames (~40ms)
+static const int MIN_UTTERANCE_MS = 450;               // allow short wake words like "jarvis"
 
 static const int MAX_SAMPLES = SAMPLE_RATE * MAX_UTTERANCE_MS / 1000;
 static int16_t g_audioSamples[MAX_SAMPLES];
 static int g_audioSampleCount = 0;
 static bool g_recording = false;
+static unsigned long g_recordingStartMs = 0;
 static unsigned long g_lastSpeechMs = 0;
+static int g_silenceFrameCount = 0;
+static int g_startConfirmFrames = 0;
 static unsigned long g_lastMicDebugMs = 0;
 static int g_i2cSdaInUse = -1;
 static int g_i2cSclInUse = -1;
 static es8311_handle_t g_es8311 = nullptr;
+static const int WAKE_BEEP_LISTEN_DELAY_MS = 450;       // let beep/ring-down settle before command capture
 
 static bool setI2sStdClock(int sampleRate, i2s_channel_t channels) {
   if (i2s_set_clk(I2S_PORT, sampleRate, I2S_BITS_PER_SAMPLE_16BIT, channels) != ESP_OK) {
@@ -104,6 +112,92 @@ static bool setI2sStdClock(int sampleRate, i2s_channel_t channels) {
     return false;
   }
   return true;
+}
+
+static void playWakeBeep() {
+  // 120ms beep at ~1200 Hz, stereo duplicated.
+  const int rate = SAMPLE_RATE;
+  const int durationMs = 120;
+  const int totalFrames = (rate * durationMs) / 1000;
+  const int halfPeriod = rate / (1200 * 2);
+  int16_t buf[512];  // 256 stereo frames
+
+  i2s_zero_dma_buffer(I2S_PORT);
+  setI2sStdClock(rate, I2S_CHANNEL_STEREO);
+
+  int frame = 0;
+  while (frame < totalFrames) {
+    int framesThis = totalFrames - frame;
+    if (framesThis > 256) framesThis = 256;
+    for (int i = 0; i < framesThis; ++i) {
+      int phase = ((frame + i) / halfPeriod) & 1;
+      int16_t s = phase ? 2200 : -2200;
+      buf[i * 2] = s;
+      buf[i * 2 + 1] = s;
+    }
+    size_t written = 0;
+    i2s_write(I2S_PORT, buf, (size_t)(framesThis * 2 * sizeof(int16_t)), &written, portMAX_DELAY);
+    frame += (int)(written / (2 * sizeof(int16_t)));
+  }
+}
+
+static String toLowerCopy(const String& in) {
+  String s = in;
+  s.toLowerCase();
+  return s;
+}
+
+static bool hasNonAscii(const String& s) {
+  for (size_t i = 0; i < s.length(); ++i) {
+    if ((uint8_t)s[i] >= 0x80) return true;
+  }
+  return false;
+}
+
+static bool isTooShortCommand(const String& s) {
+  String t = s;
+  t.trim();
+  if (t.length() < 4) return true;
+
+  int wordCount = 0;
+  bool inWord = false;
+  int alphaCount = 0;
+  for (size_t i = 0; i < t.length(); ++i) {
+    char c = t[i];
+    bool alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    if (alpha) alphaCount++;
+    if (alpha && !inWord) {
+      inWord = true;
+      wordCount++;
+    } else if (!alpha) {
+      inWord = false;
+    }
+  }
+  if (alphaCount < 4) return true;
+  if (wordCount == 1 && alphaCount <= 5) return true;
+  return false;
+}
+
+static bool hasWakeWord(const String& transcriptLower) {
+  return transcriptLower.indexOf("hello") >= 0;
+}
+
+static String removeWakeWord(const String& transcript) {
+  String s = transcript;
+  String l = toLowerCopy(s);
+
+  const char* wakes[] = {"hello"};
+  for (int i = 0; i < 1; ++i) {
+    int pos = l.indexOf(wakes[i]);
+    if (pos >= 0) {
+      int start = pos + String(wakes[i]).length();
+      String rest = s.substring(start);
+      rest.trim();
+      return rest;
+    }
+  }
+  s.trim();
+  return s;
 }
 
 static bool i2cDeviceExists(uint8_t addr) {
@@ -299,6 +393,17 @@ static bool postWavToStt(const int16_t* samples, int sampleCount, String& transc
 
   String body = http.getString();
   http.end();
+
+  if (code != 200) {
+    Serial.println("STT status: " + String(code));
+    StaticJsonDocument<768> errDoc;
+    if (deserializeJson(errDoc, body) == DeserializationError::Ok && errDoc["detail"].is<const char*>()) {
+      Serial.println("STT detail: " + errDoc["detail"].as<String>());
+    } else {
+      Serial.println("STT body: " + body);
+    }
+    return false;
+  }
 
   StaticJsonDocument<1024> doc;
   DeserializationError err = deserializeJson(doc, body);
@@ -516,7 +621,8 @@ bool initBoardAudio() {
   return true;
 }
 
-bool captureSpeechToText(String& transcript) {
+bool captureSpeechToText(String& transcript, bool* attempted) {
+  if (attempted) *attempted = false;
   int16_t frameStereo[FRAME_SAMPLES * I2S_RX_CHANNELS];
   int16_t frameMono[FRAME_SAMPLES];
   size_t bytesRead = 0;
@@ -557,12 +663,20 @@ bool captureSpeechToText(String& transcript) {
 
   if (!g_recording) {
     if (level > SPEECH_START_THRESHOLD) {
-      g_recording = true;
-      g_audioSampleCount = 0;
-      g_lastSpeechMs = now;
+      g_startConfirmFrames++;
+      if (g_startConfirmFrames >= SPEECH_START_CONFIRM_FRAMES) {
+        g_recording = true;
+        g_recordingStartMs = now;
+        g_audioSampleCount = 0;
+        g_lastSpeechMs = now;
+        g_silenceFrameCount = 0;
+        g_startConfirmFrames = 0;
+        Serial.println("REC START");
+      }
     } else {
-      return false;
+      g_startConfirmFrames = 0;
     }
+    if (!g_recording) return false;
   }
 
   if (g_audioSampleCount + samplesRead > MAX_SAMPLES) {
@@ -575,16 +689,24 @@ bool captureSpeechToText(String& transcript) {
 
   if (level > SPEECH_CONTINUE_THRESHOLD) {
     g_lastSpeechMs = now;
+    g_silenceFrameCount = 0;
+  } else {
+    g_silenceFrameCount++;
   }
 
   bool hitMax = g_audioSampleCount >= MAX_SAMPLES;
-  bool hitSilence = (now - g_lastSpeechMs) > SPEECH_END_SILENCE_MS;
+  bool hitSilence = (now - g_lastSpeechMs) > SPEECH_END_SILENCE_MS && g_silenceFrameCount >= 20;
   if (!hitMax && !hitSilence) {
     return false;
   }
 
   g_recording = false;
-  if (g_audioSampleCount < SAMPLE_RATE / 4) {
+  g_silenceFrameCount = 0;
+  unsigned long recDurationMs = now - g_recordingStartMs;
+  Serial.println("REC END durationMs=" + String(recDurationMs) +
+                 " samples=" + String(g_audioSampleCount));
+  if (attempted) *attempted = true;  // A full capture window ended (even if too short/empty).
+  if (g_audioSampleCount < (SAMPLE_RATE * MIN_UTTERANCE_MS) / 1000) {
     g_audioSampleCount = 0;
     return false;
   }
@@ -682,7 +804,14 @@ void loop() {
   g_lastAttemptMs = millis();
 
   String transcript;
-  if (!captureSpeechToText(transcript)) {
+  bool sttAttempted = false;
+  bool hasText = captureSpeechToText(transcript, &sttAttempted);
+  if (!hasText) {
+    // In command mode, allow only one command capture attempt after wake.
+    if (g_commandMode && sttAttempted) {
+      g_commandMode = false;
+      Serial.println("Command not understood. Say 'hello' and try again.");
+    }
     return;
   }
 
@@ -691,19 +820,64 @@ void loop() {
     return;
   }
 
+  String transcriptLower = toLowerCopy(transcript);
+
+  // Wake-word gate: only process commands after wake phrase.
+  if (!g_commandMode) {
+    if (!hasWakeWord(transcriptLower)) {
+      Serial.println("Ignored (no wake word): " + transcript);
+      return;
+    }
+    playWakeBeep();
+    g_recording = false;
+    g_audioSampleCount = 0;
+    g_silenceFrameCount = 0;
+    g_startConfirmFrames = 0;
+    g_resumeListenAtMs = millis() + WAKE_BEEP_LISTEN_DELAY_MS;
+    g_commandMode = true;
+    g_commandModeUntilMs = millis() + 7000;  // 7s to say one command after wake
+
+    String immediate = removeWakeWord(transcript);
+    if (immediate.length() == 0) {
+      Serial.println("Wake word detected. Waiting for command...");
+      return;
+    }
+    transcript = immediate;
+    Serial.println("Wake+Command: " + transcript);
+  } else {
+    if (millis() > g_commandModeUntilMs) {
+      g_commandMode = false;
+      Serial.println("Command window expired.");
+      return;
+    }
+  }
+
   g_requestInFlight = true;
   Serial.println("Heard: " + transcript);
 
+  if (isTooShortCommand(transcript)) {
+    Serial.println("Command too short/unclear. Say 'hello' and try again.");
+    g_commandMode = false;
+    g_requestInFlight = false;
+    return;
+  }
+
   String prompt = "Reply only in English (Indian style), in 1-2 concise spoken sentences. "
-                  "Do not use Hindi or any non-English script. User said: " + transcript;
+                  "Do not use Hindi or any non-English script. "
+                  "If user input is unclear, ask them to repeat in English. User said: " + transcript;
   localLLM.sendAsync(
       prompt,
       [](String answer) {
+        if (hasNonAscii(answer)) {
+          answer = "Please repeat your request in English.";
+        }
         Serial.println("AI: " + answer);
         speakText(answer);
+        g_commandMode = false;
         g_requestInFlight = false;
       },
       [](String error) {
+        g_commandMode = false;
         g_requestInFlight = false;
         Serial.println("LLM error: " + error);
       });
