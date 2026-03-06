@@ -15,13 +15,16 @@ public:
     int attemptCount;
     unsigned long startTime;
     unsigned long lastAttemptTime;
+    volatile bool inFlight;
+    volatile bool completed;
     
     std::function<void(String, ErrorCode)> onSuccess;
     std::function<void(ErrorCode, const String&)> onFailure;
 
     AsyncRequest(int id, const String& p, BaseProvider* prov, const RequestConfig& cfg)
         : requestId(id), prompt(p), provider(prov), config(cfg), 
-          attemptCount(0), startTime(millis()), lastAttemptTime(0) {}
+          attemptCount(0), startTime(millis()), lastAttemptTime(0),
+          inFlight(false), completed(false) {}
 
     bool shouldRetry() {
         if (attemptCount >= config.maxRetries) return false;
@@ -40,6 +43,11 @@ public:
     }
 
     void executeAttempt() {
+        if (inFlight || completed) {
+            return;
+        }
+
+        inFlight = true;
         attemptCount++;
         lastAttemptTime = millis();
 
@@ -61,6 +69,8 @@ public:
                            provider->getProviderName(), "Request completed");
                 evt.context = "attempt=" + String(attemptCount);
                 StructuredLogger::getInstance().logEvent(evt);
+                completed = true;
+                inFlight = false;
             },
             [this](String error) {
                 if (shouldRetry()) {
@@ -71,6 +81,7 @@ public:
                     evt.context = "attempt=" + String(attemptCount) + 
                                  ",nextRetryMs=" + String(config.retryDelayMs);
                     StructuredLogger::getInstance().logEvent(evt);
+                    inFlight = false;
                 } else {
                     ErrorCode code = ErrorCode::MAX_RETRIES_EXCEEDED;
                     if (millis() - startTime > config.timeoutMs) {
@@ -88,6 +99,8 @@ public:
                                provider->getProviderName(), error);
                     evt.context = "attempts=" + String(attemptCount);
                     StructuredLogger::getInstance().logEvent(evt);
+                    completed = true;
+                    inFlight = false;
                 }
             }
         );
@@ -156,8 +169,7 @@ public:
             }
 
             // Check if complete
-            RequestStatus* status = RequestTracker::getInstance().getStatus(req->requestId);
-            if (status && status->isComplete()) {
+            if (req->completed) {
                 completed.push_back(i);
             }
         }

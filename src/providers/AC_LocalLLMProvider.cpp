@@ -38,7 +38,23 @@ void AC_LocalLLMProvider::sendAsync(
             HTTPClient http;
             http.setTimeout(HTTP_TIMEOUT_MS);
 
-            String url = "http://" + self->_host + ":" + String(self->_port) + self->_endpoint;
+            if (WiFi.status() != WL_CONNECTED) {
+                String errMsg = "WiFi not connected";
+                LOG_WARN_TAG("LocalLLM", errMsg);
+                if (onFailure) onFailure(errMsg);
+                delete args;
+                vTaskDelete(NULL);
+                return;
+            }
+
+            String endpoint = self->_endpoint;
+            if (endpoint.length() == 0) {
+                endpoint = "/";
+            } else if (!endpoint.startsWith("/")) {
+                endpoint = "/" + endpoint;
+            }
+
+            String url = "http://" + self->_host + ":" + String(self->_port) + endpoint;
 
             LOG_DEBUG_TAG("LocalLLM", "Sending request to " + url);
 
@@ -59,7 +75,7 @@ void AC_LocalLLMProvider::sendAsync(
 
             int code = http.POST(body);
 
-            if (code == 200) {
+            if (code > 0 && code == 200) {
                 String response = http.getString();
                 StaticJsonDocument<JSON_BUFFER_SIZE_LG> resp;
                 DeserializationError err = deserializeJson(resp, response);
@@ -73,6 +89,9 @@ void AC_LocalLLMProvider::sendAsync(
                 }
             } else {
                 String errMsg = "HTTP error: " + String(code);
+                if (code <= 0) {
+                    errMsg += " (" + http.errorToString(code) + ")";
+                }
                 LOG_WARN_TAG("LocalLLM", errMsg);
                 if (onFailure) onFailure(errMsg);
             }

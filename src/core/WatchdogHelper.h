@@ -40,18 +40,9 @@ public:
      */
     static void begin() {
         #if defined(ARDUINO_ARCH_ESP32)
-            // Subscribe this task to TWDT
-            #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-                esp_task_wdt_config_t twdt_config = {
-                    .timeout_ms = 10000,
-                    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
-                    .trigger_panic = true,
-                };
-                esp_task_wdt_init(&twdt_config);
-            #else
-                esp_task_wdt_init(10, true);  // 10 second timeout
-            #endif
-            esp_task_wdt_add(NULL); // Add current task
+            // The Arduino core for ESP32 manages the Task Watchdog Timer automatically.
+            // By not calling esp_task_wdt_init() or esp_task_wdt_add(), we avoid
+            // conflicts and crashes related to re-initialization.
         #endif
         _lastFeedTime = millis();
     }
@@ -144,7 +135,11 @@ public:
 private:
     static void _feedInternal() {
         #if defined(ARDUINO_ARCH_ESP32)
-            esp_task_wdt_reset();
+            // Using yield() is a more robust and portable way to feed the watchdog
+            // than calling esp_task_wdt_reset() directly. It avoids conflicts
+            // with the Arduino core's management of the TWDT and doesn't require
+            // the task to be manually added.
+            yield();
         #elif defined(ARDUINO_ARCH_ESP8266)
             ESP.wdtFeed();
         #endif

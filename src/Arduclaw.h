@@ -83,7 +83,6 @@ public:
 
     void begin() {
         channelManager.begin();
-        ConfigManager.isValid();
     }
 
     void loop();
