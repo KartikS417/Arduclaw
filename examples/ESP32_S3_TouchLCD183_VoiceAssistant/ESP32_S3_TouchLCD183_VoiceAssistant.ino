@@ -96,6 +96,7 @@ static const int MAX_SAMPLES = SAMPLE_RATE * MAX_UTTERANCE_MS / 1000;
 static int16_t g_audioSamples[MAX_SAMPLES];
 static int g_audioSampleCount = 0;
 static bool g_recording = false;
+static bool g_recordingUseRight = true;
 static unsigned long g_recordingStartMs = 0;
 static unsigned long g_lastSpeechMs = 0;
 static int g_silenceFrameCount = 0;
@@ -157,7 +158,7 @@ static bool hasNonAscii(const String& s) {
 static bool isTooShortCommand(const String& s) {
   String t = s;
   t.trim();
-  if (t.length() < 4) return true;
+  if (t.length() < 3) return true;
 
   int wordCount = 0;
   bool inWord = false;
@@ -174,7 +175,7 @@ static bool isTooShortCommand(const String& s) {
     }
   }
   if (alphaCount < 4) return true;
-  if (wordCount == 1 && alphaCount <= 5) return true;
+  if (wordCount == 1 && alphaCount <= 2) return true;
   return false;
 }
 
@@ -645,7 +646,8 @@ bool captureSpeechToText(String& transcript, bool* attempted) {
     leftAcc += (l < 0) ? -l : l;
     rightAcc += (r < 0) ? -r : r;
   }
-  bool useRight = rightAcc > leftAcc;
+  bool useRightCandidate = rightAcc > leftAcc;
+  bool useRight = g_recording ? g_recordingUseRight : useRightCandidate;
   for (int i = 0; i < stereoFrames; ++i) {
     frameMono[i] = useRight ? frameStereo[i * 2 + 1] : frameStereo[i * 2];
   }
@@ -666,6 +668,7 @@ bool captureSpeechToText(String& transcript, bool* attempted) {
       g_startConfirmFrames++;
       if (g_startConfirmFrames >= SPEECH_START_CONFIRM_FRAMES) {
         g_recording = true;
+        g_recordingUseRight = useRightCandidate;  // lock lane for full utterance
         g_recordingStartMs = now;
         g_audioSampleCount = 0;
         g_lastSpeechMs = now;
