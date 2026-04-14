@@ -1,2 +1,9 @@
 /PRODUCTION_READINESS.md
 /PRODUCTION_SCORECARD.md
+tools/local_voice_server/__pycache__/server.cpython-313.pyc
+.vscode/c_cpp_properties.json
+.vscode/*
+tools/local_voice_server/models/*
+_waveshare_ref/*
+_waveshare_amoled_ref/*
+.vscode/arduino.json
