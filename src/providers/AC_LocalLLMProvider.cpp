@@ -36,7 +36,8 @@ void AC_LocalLLMProvider::sendAsync(
 
             WiFiClient client;
             HTTPClient http;
-            http.setTimeout(HTTP_TIMEOUT_MS);
+            const int LOCAL_LLM_HTTP_TIMEOUT_MS = 60000;
+            http.setTimeout(LOCAL_LLM_HTTP_TIMEOUT_MS);
 
             if (WiFi.status() != WL_CONNECTED) {
                 String errMsg = "WiFi not connected";

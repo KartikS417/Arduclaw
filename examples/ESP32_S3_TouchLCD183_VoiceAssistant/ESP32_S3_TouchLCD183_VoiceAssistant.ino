@@ -387,7 +387,7 @@ static bool postWavToStt(const int16_t* samples, int sampleCount, String& transc
   free(wav);
 
   if (code <= 0) {
-    Serial.println("STT HTTP error");
+    Serial.println("STT HTTP error: " + http.errorToString(code));
     http.end();
     return false;
   }
