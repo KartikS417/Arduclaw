@@ -6,8 +6,29 @@
 #include <providers/AC_LocalLLMProvider.h>
 #include <driver/i2s.h>
 #include <Wire.h>
+#include "Arduino_GFX_Library.h"
 #include "es7210.h"
 #include "es8311.h"
+
+// Color definitions for Arduino_GFX
+#define BLACK   0x0000
+#define WHITE   0xFFFF
+#define RED     0xF800
+#define GREEN   0x07E0
+#define BLUE    0x001F
+#define CYAN    0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW  0xFFE0
+
+// LCD pin configuration
+#define LCD_DC 4
+#define LCD_CS 5
+#define LCD_SCK 6
+#define LCD_MOSI 7
+#define LCD_RST 38
+#define LCD_BL 40
+#define LCD_WIDTH 240
+#define LCD_HEIGHT 284
 
 // WiFi configuration
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
@@ -43,10 +64,18 @@ static const int I2S_RX_CHANNELS = 2;
 ArduClaw claw;
 AC_LocalLLMProvider localLLM(LLM_HOST, LLM_PORT, LLM_PATH, LLM_MODEL);
 
+// LCD display setup
+Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST /* RST */, 0 /* rotation */, true /* IPS */,
+                                      LCD_WIDTH, LCD_HEIGHT, 0, 0, 0, 0);
+
 WiFiClientSecure securedClient;
 UniversalTelegramBot bot(TELEGRAM_BOT_TOKEN, securedClient);
 
 unsigned long lastBotCheck = 0;
+String pendingAction = "";
+String pendingReplyChatId = "";
+String pendingReplyText = "";
 
 // This is the system prompt that gives the LLM context.
 // It tells the LLM its role, the available actions, and the required JSON output format.
@@ -57,6 +86,122 @@ const char* PROMPT_TEMPLATE =
   "If the user's request is unclear or does not map to an action, respond with a JSON object containing a 'response' key with a helpful message. "
   "User request: \"%s\""
   "JSON response:";
+
+// ----------------------------------------
+// Display functions
+// ----------------------------------------
+
+static bool sendTelegramReply(const String& chat_id, const String& text) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected before Telegram send");
+    return false;
+  }
+  if (securedClient.connected()) {
+    securedClient.stop();
+  }
+  securedClient.setInsecure();
+
+  bool sent = bot.sendMessage(chat_id, text, "");
+  Serial.println(sent ? "Telegram reply sent" : "Telegram reply failed");
+  if (!sent) {
+    Serial.println("Failed to send Telegram reply for chat_id: " + chat_id);
+  } else {
+    Serial.println("Reply text: " + text);
+  }
+  return sent;
+}
+
+void initDisplay() {
+  Serial.println("Initializing LCD display...");
+  
+  if (!gfx->begin()) {
+    Serial.println("gfx->begin() failed!");
+    return;
+  }
+  
+  gfx->setTextSize(2);
+  gfx->fillScreen(BLACK);
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, HIGH);
+  
+  // Display ready message centered
+  int16_t x1, y1;
+  uint16_t w, h;
+  gfx->getTextBounds("TelegramBeep Ready!", 0, 0, &x1, &y1, &w, &h);
+  int x = (LCD_WIDTH - w) / 2;
+  int y = (LCD_HEIGHT - h) / 2;
+  gfx->setCursor(x, y);
+  gfx->setTextColor(RED);
+  gfx->println("TelegramBeep Ready!");
+  delay(1000);
+}
+
+void displayQuery(const String& query) {
+  gfx->setTextSize(2);
+  gfx->fillScreen(BLACK);
+  
+  // Display "Request:" header centered
+  int16_t x1, y1;
+  uint16_t w, h;
+  gfx->getTextBounds("Request:", 0, 0, &x1, &y1, &w, &h);
+  int x = (LCD_WIDTH - w) / 2;
+  gfx->setCursor(x, 10);
+  gfx->setTextColor(CYAN);
+  gfx->println("Request:");
+  
+  // Display the query text
+  gfx->setCursor(20, 40);
+  gfx->setTextColor(WHITE);
+  
+  // Simple word wrapping
+  int cursorX = 20, cursorY = 40;
+  String word = "";
+  for (int i = 0; i < query.length(); i++) {
+    if (query[i] == ' ' || i == query.length() - 1) {
+      if (i == query.length() - 1) word += query[i];
+      
+      // Check if word fits on current line
+      int wordWidth = word.length() * 12;
+      if (query[i] == ' ') wordWidth += 12; // add space
+      if (cursorX + wordWidth > LCD_WIDTH - 20) {
+        cursorY += 20;
+        cursorX = 20;
+        gfx->setCursor(cursorX, cursorY);
+      }
+      
+      gfx->print(word);
+      cursorX += word.length() * 12;
+      if (query[i] == ' ') {
+        gfx->print(" ");
+        cursorX += 12;
+      }
+      word = "";
+    } else {
+      word += query[i];
+    }
+  }
+}
+
+void displayAction(const String& action) {
+  gfx->setTextSize(2);
+  
+  // Display action at bottom of screen
+  int16_t x1, y1;
+  uint16_t w, h;
+  gfx->getTextBounds("Action:", 0, 0, &x1, &y1, &w, &h);
+  int x = (LCD_WIDTH - w) / 2;
+  gfx->setCursor(x, LCD_HEIGHT - 80);
+  gfx->setTextColor(GREEN);
+  gfx->println("Action:");
+  
+  gfx->getTextBounds(action, 0, 0, &x1, &y1, &w, &h);
+  x = (LCD_WIDTH - w) / 2;
+  gfx->setCursor(x, LCD_HEIGHT - 50);
+  gfx->setTextColor(YELLOW);
+  gfx->println(action);
+}
+
+// ----------------------------------------
 
 static bool i2cDeviceExists(uint8_t addr) {
   Wire.beginTransmission(addr);
@@ -143,6 +288,7 @@ static void playBeep(int durationMs) {
     size_t written = 0;
     i2s_write(I2S_PORT, buf, (size_t)(framesThis * 2 * sizeof(int16_t)), &written, portMAX_DELAY);
     frame += (int)(written / (2 * sizeof(int16_t)));
+    yield();
   }
 }
 
@@ -277,6 +423,9 @@ void setup() {
   Serial.println("\nWiFi connected");
   securedClient.setInsecure(); // skip certificate validation
 
+  // Initialize display
+  initDisplay();
+
   // Initialize local LLM provider and ArduClaw
   claw.begin();
   localLLM.begin("");
@@ -293,17 +442,36 @@ void setup() {
 }
 
 void handleAction(const String& action) {
+  Serial.println("handleAction: " + action);
   if (action == "short_beep") {
     playBeep(120);
     Serial.println("Short beep played");
+    delay(10);
+    displayAction("short_beep executed");
   } else if (action == "long_beep") {
     playBeep(300);
     Serial.println("Long beep played");
+    delay(10);
+    displayAction("long_beep executed");
   }
 }
 
 void loop() {
   claw.loop();
+
+  if (pendingReplyChatId.length() > 0) {
+    Serial.println("Sending pending Telegram reply");
+    if (sendTelegramReply(pendingReplyChatId, pendingReplyText)) {
+      pendingReplyChatId = "";
+      pendingReplyText = "";
+    }
+  }
+
+  if (pendingAction.length() > 0) {
+    Serial.println("Executing pending action: " + pendingAction);
+    handleAction(pendingAction);
+    pendingAction = "";
+  }
 
   if (millis() - lastBotCheck > BOT_POLL_INTERVAL) {
     int numNew = bot.getUpdates(bot.last_message_received + 1);
@@ -312,6 +480,7 @@ void loop() {
       String chat_id = bot.messages[i].chat_id;
       if (text.length() > 0) {
         Serial.println("User: " + text);
+        displayQuery(text);
 
         // Format the full prompt with context
         char fullPrompt[512];
@@ -319,17 +488,27 @@ void loop() {
 
         // Send the full, contextual prompt to the LLM
         claw.ask(fullPrompt, [chat_id](JsonDocument& doc) {
+          String replyText = "";
           if (doc.containsKey("action")) {
             String action = doc["action"].as<String>();
-            handleAction(action);
-            bot.sendMessage(chat_id, "Action executed: " + action, "");
+            replyText = "Action executed: " + action;
+            pendingAction = action;
+            pendingReplyChatId = chat_id;
+            pendingReplyText = replyText;
+            Serial.println("Pending action queued: " + action);
+            Serial.println("Pending reply queued: " + replyText);
           } else if (doc.containsKey("response")) {
-            String response = doc["response"].as<String>();
-            bot.sendMessage(chat_id, response, "");
+            replyText = doc["response"].as<String>();
+            pendingReplyChatId = chat_id;
+            pendingReplyText = replyText;
+            Serial.println("Pending reply queued: " + replyText);
           } else {
             String out;
             serializeJson(doc, out);
-            bot.sendMessage(chat_id, out, "");
+            replyText = out;
+            pendingReplyChatId = chat_id;
+            pendingReplyText = replyText;
+            Serial.println("Pending reply queued: " + replyText);
           }
         });
       }
